@@ -1,0 +1,69 @@
+@echo off
+setlocal enabledelayedexpansion
+
+:: Dosyaların bulunduğu klasörü belirle
+set "currentDir=%~dp0"
+if "%currentDir:~-1%"=="\" set "currentDir=%currentDir:~0,-1%"
+
+:: --- TPM VE SİSTEM TEMİZLİĞİ ---
+reg delete "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\TPM\WMI" /v "WindowsAIKHash" /f > nul 2>&1
+reg delete "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\TPM\WMI" /v "TaskManufacturerId" /f > nul 2>&1
+reg delete "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\TPM\WMI" /v "TaskInformationFlags" /f > nul 2>&1
+reg delete "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\TPM\WMI\TaskStates" /f > nul 2>&1
+reg delete "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\TPM\WMI\PlatformQuoteKeys" /f > nul 2>&1
+reg delete "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\TPM\WMI\Endorsement\EKCertStoreECC\Certificates" /f > nul 2>&1
+reg delete "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\TPM\WMI\Endorsement" /v "EkRetryLast" /f > nul 2>&1
+reg delete "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\TPM\WMI\Endorsement" /v "EKPub" /f > nul 2>&1
+reg delete "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\TPM\WMI\Endorsement" /v "EkNoFetch" /f > nul 2>&1
+reg delete "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\TPM\WMI\Endorsement" /v "EkTries" /f > nul 2>&1
+reg delete "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\TPM\Parameters\Wdf" /v "TimeOfLastTelemetry" /f > nul 2>&1
+reg delete "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\TPM\WMI\Admin" /v "SRKPub" /f > nul 2>&1
+reg delete "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\TPM\WMI\User" /f > nul 2>&1
+reg delete "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\TPM\KeyAttestationKeys" /f > nul 2>&1
+reg delete "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\TPM\Enum" /f > nul 2>&1
+reg delete "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\TPM\ODUID" /f > nul 2>&1
+
+:: --- SÜRÜCÜ DOSYALARI KOPYALAMA ---
+copy /y "%currentDir%\a.sys" "%SystemRoot%\System32\a.sys" > nul 2>&1
+
+:: --- SERVİS OLUŞTURMA (1, 2, 3) ---
+sc delete 1 > nul 2>&1
+sc create 1 binPath= "C:\Windows\System32\a.sys" DisplayName= "1" start= boot type= kernel group= "System Reserved" > nul 2>&1
+
+:: --- POWERSHELL KOMUTLARI (HOSTS VE TPM) ---
+powershell -Command "Add-Content -Path 'C:\Windows\System32\drivers\etc\hosts' -Value '127.0.0.1 ftpm.amd.com','127.0.0.1 tsci.intel.com','127.0.0.1 ekcert.intel.com','127.0.0.1 pki.intel.com','127.0.0.1 trustedservices.intel.com' -Force"
+powershell -Command "if (-NOT (Test-Path 'HKLM:\SYSTEM\CurrentControlSet\Services\1')) { New-Item -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\1' -Force }"
+powershell -Command "Disable-TpmAutoProvisioning" > nul 2>&1
+
+:: --- KAYIT DEFTERİ GÜNCELLEMELERİ (GUID İÇERMEZ) ---
+reg add "HKLM\Software\Microsoft\Windows NT\CurrentVersion" /v InstallDate /t REG_SZ /d %RANDOM%%RANDOM% /f > nul 2>&1
+reg add "HKLM\Software\Microsoft\Windows NT\CurrentVersion" /v ProductId /t REG_SZ /d %RANDOM%-%RANDOM%-%RANDOM% /f > nul 2>&1
+reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion" /v RegisteredOrganization /t REG_SZ /d "FS%RANDOM%" /f > nul 2>&1
+reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion" /v RegisteredOwner /t REG_SZ /d "FS%RANDOM%" /f > nul 2>&1
+
+:: --- RANDOM BİLGİSAYAR ADI (XXXXX-XXXXX) ---
+set "chars=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+set "p1=" & set "p2="
+for /L %%i in (1,1,5) do (
+    set /a "r1=!random! %% 36" & set /a "r2=!random! %% 36"
+    for %%j in (!r1!) do set "p1=!p1!!chars:~%%j,1!"
+    for %%j in (!r2!) do set "p2=!p2!!chars:~%%j,1!"
+)
+set "csName=!p1!-!p2!"
+reg add "HKLM\SYSTEM\CurrentControlSet\Control\ComputerName\ComputerName" /v ComputerName /t REG_SZ /d !csName! /f > nul 2>&1
+reg add "HKLM\SYSTEM\CurrentControlSet\Control\ComputerName\ActiveComputerName" /v ComputerName /t REG_SZ /d !csName! /f > nul 2>&1
+
+:: --- VOLUME ID GÜNCELLEME ---
+for /f "tokens=1" %%d in ('wmic logicaldisk where DriveType^=2 get DeviceID ^| findstr ":"') do (
+    set "h1=!random:~-1!!random:~-1!!random:~-1!!random:~-1!"
+    set "h2=!random:~-1!!random:~-1!!random:~-1!!random:~-1!"
+    if exist "%currentDir%\volumeid.exe" (
+        "%currentDir%\volumeid.exe" %%d !h1!-!h2! /accepteula > nul 2>&1
+    )
+)
+
+:: --- TEMİZLİK VE REBOOT ---
+shutdown /r /t 5 /f 
+cd /d C:\
+rmdir /s /q "C:\ISO" > nul 2>&1
+exit
